@@ -161,36 +161,47 @@ module.exports = { MultiAgentWorker };`;
     // Final consolidation
     const deliverable = `# Final Deliverable: ${task.title}\n\n**Goal**: ${task.goal}\n\n## 1. Executive Summary\nThe multi-agent fleet successfully coordinated to analyze, design, implement, and audit the solution for **"${task.goal}"**.\n\n## 2. Technical Solution\n\`\`\`javascript\n${generatedCode}\n\`\`\`\n\n## 3. Verification & QA Status\n- **Planner**: Atlas (Blueprint Verified)\n- **Researcher**: Nova (Context Verified)\n- **Engineer**: Cypher (Code Built)\n- **Auditor**: Aegis (Security Audit Passed)`;
 
-    task = await Task.findOne({ id: taskId });
-    task.status = 'completed';
-    task.deliverable = deliverable;
-    task.executionTimeMs = Date.now() - startTime;
-    task.completedAt = new Date();
-    await task.save();
-
-    // Cache completed task
-    await setCache(`task:${taskId}`, task.toObject(), 600);
-
     await publishLog(taskId, reviewer, 'deliverable', deliverable);
+
+    const executionTimeMs = Date.now() - startTime;
+    await Task.findOneAndUpdate(
+      { id: taskId },
+      {
+        $set: {
+          status: 'completed',
+          deliverable,
+          executionTimeMs,
+          completedAt: new Date(),
+          'steps.0.status': 'completed',
+          'steps.1.status': 'completed',
+          'steps.2.status': 'completed',
+          'steps.3.status': 'completed'
+        }
+      }
+    );
+
+    const finalSavedTask = await Task.findOne({ id: taskId });
+    if (finalSavedTask) {
+      await setCache(`task:${taskId}`, finalSavedTask.toObject(), 600);
+    }
+
     await publishEvent(taskId, {
       type: 'completed',
       deliverable,
-      executionTimeMs: task.executionTimeMs,
-      message: `Task "${task.title}" completed successfully in ${(task.executionTimeMs / 1000).toFixed(1)}s!`
+      executionTimeMs,
+      message: `Task "${task.title}" completed successfully in ${(executionTimeMs / 1000).toFixed(1)}s!`
     });
 
   } catch (error) {
     console.error(`Task ${taskId} execution error:`, error);
-    task = await Task.findOne({ id: taskId });
-    if (task) {
-      task.status = 'failed';
-      task.completedAt = new Date();
-      await task.save();
-    }
+    await Task.findOneAndUpdate(
+      { id: taskId },
+      { $set: { status: 'failed', completedAt: new Date() } }
+    );
     await publishEvent(taskId, {
       type: 'failed',
       error: error.message,
-      message: `Task "${task?.title}" failed: ${error.message}`
+      message: `Task "${taskId}" failed: ${error.message}`
     });
   }
 }

@@ -227,33 +227,42 @@ const App: React.FC = () => {
         body: JSON.stringify({ title, goal, pipelineType })
       });
 
-      if (res.ok) {
-        const newTask: Task = await res.json();
-
-        // If returned already completed (Serverless Vercel execution)
-        if (newTask.status === 'completed') {
-          if (soundEnabled) playChime('completed');
-          setTasks((prev) => [newTask, ...prev.filter((t) => t.id !== newTask.id)]);
-          setCurrentTask(newTask);
-          setActiveTab('launchpad');
-          fetchStats();
-          fetchTasks();
-          fetchAgents();
-        } else {
-          // In progress / streaming mode
-          if (newTask.steps && newTask.steps.length > 0) {
-            newTask.steps[0].status = 'in_progress';
-          }
-          newTask.status = 'in_progress';
-          setTasks((prev) => [newTask, ...prev]);
-          setCurrentTask(newTask);
-          setActiveTab('launchpad');
-          connectSSE(newTask.id);
-          fetchStats();
-        }
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({ error: `HTTP ${res.status}: ${res.statusText}` }));
+        console.error('Launch task error response:', errJson);
+        alert(`Launch Failed: ${errJson.error || 'Server error'}`);
+        return;
       }
-    } catch (err) {
+
+      const newTask: Task = await res.json();
+
+      // If returned already completed (Serverless Vercel execution)
+      if (newTask.status === 'completed') {
+        const completedSteps = (newTask.steps || []).map((s) => ({ ...s, status: 'completed' as const }));
+        const finalTask = { ...newTask, steps: completedSteps };
+        if (soundEnabled) playChime('completed');
+        setTasks((prev) => [finalTask, ...prev.filter((t) => t.id !== finalTask.id)]);
+        setCurrentTask(finalTask);
+        setActiveTab('launchpad');
+        fetchStats();
+        fetchTasks();
+        fetchAgents();
+      } else {
+        // In progress / streaming mode
+        const steps = (newTask.steps || []).map((s, idx) =>
+          idx === 0 ? { ...s, status: 'in_progress' as const } : s
+        );
+        const inProgTask = { ...newTask, status: 'in_progress' as const, steps };
+        setTasks((prev) => [inProgTask, ...prev.filter((t) => t.id !== inProgTask.id)]);
+        setCurrentTask(inProgTask);
+        setActiveTab('launchpad');
+        connectSSE(inProgTask.id);
+        fetchStats();
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
       console.error('Failed to launch task:', err);
+      alert(`Network error launching task: ${errMsg}`);
     } finally {
       setIsLaunching(false);
     }
