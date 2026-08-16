@@ -26,25 +26,37 @@ app.use((req, res, next) => {
 });
 
 // Connect to MongoDB & Redis
+let isInitialized = false;
 async function initializeServices() {
+  if (isInitialized && mongoose.connection.readyState === 1) return;
   try {
     const mongoUri = process.env.MONGODB_URI || 'mongodb://mongo:27017/multiagent';
-    await mongoose.connect(mongoUri);
-    console.log('MongoDB connected successfully');
+    if (mongoose.connection.readyState !== 1) {
+      await mongoose.connect(mongoUri);
+      console.log('MongoDB connected successfully');
+    }
 
     // Seed default agents
     await seedDefaultAgents();
-    console.log('Default Multi-Agent Fleet initialized');
 
     // Initialize Redis
     const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
     await initRedis(redisUrl);
+    isInitialized = true;
   } catch (err) {
     console.error('Initialization error:', err);
   }
 }
 
 initializeServices();
+
+// Serverless connection middleware
+app.use(async (req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    await initializeServices();
+  }
+  next();
+});
 
 // ================= ROUTES ================= //
 
@@ -271,8 +283,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong!' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Multi-Agent API server running on port ${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Multi-Agent API server running on port ${PORT}`);
+  });
+}
 
 module.exports = app;

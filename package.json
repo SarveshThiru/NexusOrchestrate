@@ -3,12 +3,17 @@
   "version": "1.0.0",
   "description": "NexusOrchestrate — Multi-Agent AI Orchestration & Mission Control",
   "private": true,
+  "workspaces": [
+    "frontend",
+    "api"
+  ],
   "scripts": {
     "dev": "npm start --prefix frontend",
     "start": "npm start --prefix frontend",
     "dev:frontend": "npm start --prefix frontend",
     "dev:api": "npm start --prefix api",
     "build": "npm run build --prefix frontend",
+    "vercel-build": "npm install --prefix frontend && npm install --prefix api && npm run build --prefix frontend",
     "docker:up": "docker compose up --build",
     "docker:down": "docker compose down"
   }
