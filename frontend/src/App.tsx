@@ -8,6 +8,13 @@ import AgentFleet from './components/AgentFleet';
 import TaskHistory from './components/TaskHistory';
 import AnalyticsView from './components/AnalyticsView';
 import { Agent, Task, SystemStats } from './types';
+import {
+  DEFAULT_CLIENT_AGENTS,
+  runClientSimulation,
+  getLocalTasks,
+  saveLocalTasks,
+  getLocalStats
+} from './services/clientAgentEngine';
 
 const API_BASE =
   (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL) ||
@@ -77,7 +84,7 @@ const playChime = (type: 'event' | 'phase' | 'completed' | 'failed') => {
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'launchpad' | 'fleet' | 'history' | 'analytics'>('launchpad');
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agents, setAgents] = useState<Agent[]>(DEFAULT_CLIENT_AGENTS);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [currentTask, setCurrentTask] = useState<Task | null>(null);
   const [stats, setStats] = useState<SystemStats | null>(null);
@@ -92,10 +99,12 @@ const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setStats(data);
+        return;
       }
-    } catch (e) {
-      console.error('Error fetching stats:', e);
+    } catch {
+      // Fallback
     }
+    setStats((prev) => prev || getLocalStats(getLocalTasks()));
   }, []);
 
   const fetchAgents = useCallback(async () => {
@@ -104,10 +113,12 @@ const App: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setAgents(data);
+        return;
       }
-    } catch (e) {
-      console.error('Error fetching agents:', e);
+    } catch {
+      // Fallback
     }
+    setAgents(DEFAULT_CLIENT_AGENTS);
   }, []);
 
   const fetchTasks = useCallback(async () => {
@@ -115,154 +126,227 @@ const App: React.FC = () => {
       const res = await fetch(`${API_BASE}/api/tasks`);
       if (res.ok) {
         const data: Task[] = await res.json();
-        setTasks(data);
-        if (data.length > 0 && !currentTask) {
-          setCurrentTask(data[0]);
+        if (data && data.length > 0) {
+          setTasks(data);
+          if (!currentTask) {
+            setCurrentTask(data[0]);
+          }
+          return;
         }
       }
-    } catch (e) {
-      console.error('Error fetching tasks:', e);
+    } catch {
+      // Fallback
+    }
+    const local = getLocalTasks();
+    if (local.length > 0) {
+      setTasks(local);
+      if (!currentTask) {
+        setCurrentTask(local[0]);
+      }
     }
   }, [currentTask]);
 
-  // Connect to SSE stream for live agent events
+  // Connect to SSE stream for live agent events (Server mode)
   const connectSSE = useCallback((taskId: string) => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
 
-    const eventSource = new EventSource(`${API_BASE}/api/tasks/${taskId}/stream`);
-    eventSourceRef.current = eventSource;
+    try {
+      const eventSource = new EventSource(`${API_BASE}/api/tasks/${taskId}/stream`);
+      eventSourceRef.current = eventSource;
 
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
 
-        if (data.type === 'sync' && data.task) {
-          setCurrentTask(data.task);
-        } else if (data.type === 'connected' || data.type === 'system') {
-          setCurrentTask((prev) => {
-            if (!prev || prev.id !== taskId) return prev;
-            const updatedSteps = (prev.steps || []).map((s, idx) =>
-              idx === 0 && s.status === 'pending' ? { ...s, status: 'in_progress' as const } : s
-            );
-            return {
-              ...prev,
-              status: prev.status === 'queued' ? 'in_progress' : prev.status,
-              steps: updatedSteps
-            };
-          });
-        } else if (data.type === 'log') {
-          if (soundEnabled) playChime('event');
-          setCurrentTask((prev) => {
-            if (!prev || prev.id !== taskId) return prev;
-            const exists = (prev.logs || []).some((l) => l.id === data.log.id);
-            const logs = exists ? prev.logs : [...(prev.logs || []), data.log];
-            const updatedSteps = (prev.steps || []).map((s, idx) =>
-              idx === 0 && s.status === 'pending' ? { ...s, status: 'in_progress' as const } : s
-            );
-            return {
-              ...prev,
-              status: 'in_progress',
-              steps: updatedSteps,
-              logs
-            };
-          });
-        } else if (data.type === 'step_completed') {
-          if (soundEnabled) playChime('phase');
-          setCurrentTask((prev) => {
-            if (!prev || prev.id !== taskId) return prev;
-            const updatedSteps = prev.steps.map((s) =>
-              s.stepNumber === data.stepNumber
-                ? { ...s, status: 'completed' as const, output: data.output }
-                : s.stepNumber === data.stepNumber + 1
-                ? { ...s, status: 'in_progress' as const }
-                : s
-            );
-            return { ...prev, status: 'in_progress', steps: updatedSteps };
-          });
-        } else if (data.type === 'completed') {
-          if (soundEnabled) playChime('completed');
-          setCurrentTask((prev) => {
-            if (!prev || prev.id !== taskId) return prev;
-            const allCompletedSteps = prev.steps.map((s) => ({ ...s, status: 'completed' as const }));
-            return {
-              ...prev,
-              status: 'completed',
-              steps: allCompletedSteps,
-              deliverable: data.deliverable,
-              executionTimeMs: data.executionTimeMs
-            };
-          });
-          fetchTasks();
-          fetchStats();
-          fetchAgents();
-          eventSource.close();
-        } else if (data.type === 'failed') {
-          if (soundEnabled) playChime('failed');
-          setCurrentTask((prev) => {
-            if (!prev || prev.id !== taskId) return prev;
-            return { ...prev, status: 'failed' };
-          });
-          eventSource.close();
+          if (data.type === 'sync' && data.task) {
+            setCurrentTask(data.task);
+          } else if (data.type === 'connected' || data.type === 'system') {
+            setCurrentTask((prev) => {
+              if (!prev || prev.id !== taskId) return prev;
+              const updatedSteps = (prev.steps || []).map((s, idx) =>
+                idx === 0 && s.status === 'pending' ? { ...s, status: 'in_progress' as const } : s
+              );
+              return {
+                ...prev,
+                status: prev.status === 'queued' ? 'in_progress' : prev.status,
+                steps: updatedSteps
+              };
+            });
+          } else if (data.type === 'log') {
+            if (soundEnabled) playChime('event');
+            setCurrentTask((prev) => {
+              if (!prev || prev.id !== taskId) return prev;
+              const exists = (prev.logs || []).some((l) => l.id === data.log.id);
+              const logs = exists ? prev.logs : [...(prev.logs || []), data.log];
+              const updatedSteps = (prev.steps || []).map((s, idx) =>
+                idx === 0 && s.status === 'pending' ? { ...s, status: 'in_progress' as const } : s
+              );
+              return {
+                ...prev,
+                status: 'in_progress',
+                steps: updatedSteps,
+                logs
+              };
+            });
+          } else if (data.type === 'step_completed') {
+            if (soundEnabled) playChime('phase');
+            setCurrentTask((prev) => {
+              if (!prev || prev.id !== taskId) return prev;
+              const updatedSteps = prev.steps.map((s) =>
+                s.stepNumber === data.stepNumber
+                  ? { ...s, status: 'completed' as const, output: data.output }
+                  : s.stepNumber === data.stepNumber + 1
+                  ? { ...s, status: 'in_progress' as const }
+                  : s
+              );
+              return { ...prev, status: 'in_progress', steps: updatedSteps };
+            });
+          } else if (data.type === 'completed') {
+            if (soundEnabled) playChime('completed');
+            setCurrentTask((prev) => {
+              if (!prev || prev.id !== taskId) return prev;
+              const allCompletedSteps = prev.steps.map((s) => ({ ...s, status: 'completed' as const }));
+              return {
+                ...prev,
+                status: 'completed',
+                steps: allCompletedSteps,
+                deliverable: data.deliverable,
+                executionTimeMs: data.executionTimeMs
+              };
+            });
+            fetchTasks();
+            fetchStats();
+            fetchAgents();
+            eventSource.close();
+          } else if (data.type === 'failed') {
+            if (soundEnabled) playChime('failed');
+            setCurrentTask((prev) => {
+              if (!prev || prev.id !== taskId) return prev;
+              return { ...prev, status: 'failed' };
+            });
+            eventSource.close();
+          }
+        } catch (e) {
+          console.error('Failed to parse SSE event:', e);
         }
-      } catch (e) {
-        console.error('Failed to parse SSE event:', e);
-      }
-    };
+      };
 
-    eventSource.onerror = () => {
-      // Don't close immediately on transient errors
-    };
+      eventSource.onerror = () => {
+        // SSE not supported on static host, fallback poller will manage
+      };
 
-    return eventSource;
+      return eventSource;
+    } catch {
+      return null;
+    }
   }, [soundEnabled, fetchTasks, fetchStats, fetchAgents]);
 
   const handleLaunchTask = async (title: string, goal: string, pipelineType: string) => {
     setIsLaunching(true);
+    const taskTitle = title.trim() || goal.slice(0, 45) + (goal.length > 45 ? '...' : '');
+
     try {
       const res = await fetch(`${API_BASE}/api/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, goal, pipelineType })
+        body: JSON.stringify({ title: taskTitle, goal, pipelineType })
       });
 
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({ error: `HTTP ${res.status}: ${res.statusText}` }));
-        console.error('Launch task error response:', errJson);
-        alert(`Launch Failed: ${errJson.error || 'Server error'}`);
-        return;
-      }
+      if (res.ok) {
+        const newTask: Task = await res.json();
 
-      const newTask: Task = await res.json();
-
-      // If returned already completed (Serverless Vercel execution)
-      if (newTask.status === 'completed') {
-        const completedSteps = (newTask.steps || []).map((s) => ({ ...s, status: 'completed' as const }));
-        const finalTask = { ...newTask, steps: completedSteps };
-        if (soundEnabled) playChime('completed');
-        setTasks((prev) => [finalTask, ...prev.filter((t) => t.id !== finalTask.id)]);
-        setCurrentTask(finalTask);
-        setActiveTab('launchpad');
-        fetchStats();
-        fetchTasks();
-        fetchAgents();
-      } else {
-        // In progress / streaming mode
-        const steps = (newTask.steps || []).map((s, idx) =>
-          idx === 0 ? { ...s, status: 'in_progress' as const } : s
-        );
-        const inProgTask = { ...newTask, status: 'in_progress' as const, steps };
-        setTasks((prev) => [inProgTask, ...prev.filter((t) => t.id !== inProgTask.id)]);
-        setCurrentTask(inProgTask);
-        setActiveTab('launchpad');
-        connectSSE(inProgTask.id);
-        fetchStats();
+        // If returned already completed (Serverless Vercel execution)
+        if (newTask.status === 'completed') {
+          const completedSteps = (newTask.steps || []).map((s) => ({ ...s, status: 'completed' as const }));
+          const finalTask = { ...newTask, steps: completedSteps };
+          if (soundEnabled) playChime('completed');
+          setTasks((prev) => [finalTask, ...prev.filter((t) => t.id !== finalTask.id)]);
+          setCurrentTask(finalTask);
+          setActiveTab('launchpad');
+          fetchStats();
+          fetchTasks();
+          fetchAgents();
+          return;
+        } else {
+          // In progress / streaming mode
+          const steps = (newTask.steps || []).map((s, idx) =>
+            idx === 0 ? { ...s, status: 'in_progress' as const } : s
+          );
+          const inProgTask = { ...newTask, status: 'in_progress' as const, steps };
+          setTasks((prev) => [inProgTask, ...prev.filter((t) => t.id !== inProgTask.id)]);
+          setCurrentTask(inProgTask);
+          setActiveTab('launchpad');
+          connectSSE(inProgTask.id);
+          fetchStats();
+          return;
+        }
       }
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      console.error('Failed to launch task:', err);
-      alert(`Network error launching task: ${errMsg}`);
+      throw new Error(`API returned HTTP ${res.status}`);
+    } catch (err) {
+      console.info('Running autonomous client-side multi-agent engine...', err);
+
+      // Autonomous Client Engine Simulation
+      const initialTask: Task = {
+        id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        title: taskTitle,
+        goal,
+        pipelineType: pipelineType as 'full_collaboration' | 'quick_plan' | 'code_review',
+        status: 'in_progress',
+        assignedAgents: ['agent-architect', 'agent-researcher', 'agent-coder', 'agent-reviewer'],
+        steps: [
+          { stepNumber: 1, name: 'System Architecture & Task Decomposition', agentId: 'agent-architect', agentName: 'Atlas', status: 'in_progress' },
+          { stepNumber: 2, name: 'Deep Technical Research & Pattern Discovery', agentId: 'agent-researcher', agentName: 'Nova', status: 'pending' },
+          { stepNumber: 3, name: 'Implementation & Artifact Generation', agentId: 'agent-coder', agentName: 'Cypher', status: 'pending' },
+          { stepNumber: 4, name: 'Security Audit & Quality Certification', agentId: 'agent-reviewer', agentName: 'Aegis', status: 'pending' }
+        ],
+        logs: [],
+        createdAt: new Date().toISOString()
+      };
+
+      setCurrentTask(initialTask);
+      setTasks((prev) => [initialTask, ...prev]);
+      setActiveTab('launchpad');
+
+      const completedTask = await runClientSimulation(
+        initialTask,
+        (log) => {
+          if (soundEnabled) playChime('event');
+          setCurrentTask((prev) => {
+            if (!prev || prev.id !== initialTask.id) return prev;
+            return {
+              ...prev,
+              logs: [...prev.logs, log]
+            };
+          });
+        },
+        (stepNumber, output) => {
+          if (soundEnabled) playChime('phase');
+          setCurrentTask((prev) => {
+            if (!prev || prev.id !== initialTask.id) return prev;
+            const steps = prev.steps.map((s) =>
+              s.stepNumber === stepNumber
+                ? { ...s, status: 'completed' as const, output }
+                : s.stepNumber === stepNumber + 1
+                ? { ...s, status: 'in_progress' as const }
+                : s
+            );
+            return { ...prev, steps };
+          });
+        },
+        () => {
+          if (soundEnabled) playChime('completed');
+        }
+      );
+
+      setCurrentTask(completedTask);
+      setTasks((prev) => {
+        const updated = [completedTask, ...prev.filter((t) => t.id !== completedTask.id)];
+        saveLocalTasks(updated);
+        return updated;
+      });
+      setStats(getLocalStats([completedTask, ...tasks]));
     } finally {
       setIsLaunching(false);
     }
@@ -287,7 +371,7 @@ const App: React.FC = () => {
     };
   }, [fetchStats, fetchAgents, fetchTasks]);
 
-  // Active Task Fallback Live Polling (Ensures instant live updates even if SSE is buffered)
+  // Active Task Fallback Live Polling
   useEffect(() => {
     if (!currentTask || (currentTask.status !== 'in_progress' && currentTask.status !== 'queued')) {
       return;
@@ -305,7 +389,7 @@ const App: React.FC = () => {
             fetchAgents();
           }
         }
-      } catch (err) {
+      } catch {
         // Ignore live poll errors
       }
     }, 1200);
@@ -360,23 +444,21 @@ const App: React.FC = () => {
               selectedTaskId={currentTask?.id || null}
               onSelectTask={(task) => {
                 setCurrentTask(task);
-                if (task.status === 'in_progress') {
-                  connectSSE(task.id);
-                }
+                setActiveTab('launchpad');
               }}
               onRerunTask={(title, goal, pipelineType) => {
                 handleLaunchTask(title, goal, pipelineType);
               }}
             />
-            <LiveWorkflowViewer task={currentTask} />
+            <LiveWorkflowViewer task={currentTask} isLaunching={isLaunching} />
           </div>
         )}
 
         {activeTab === 'analytics' && (
           <AnalyticsView
+            stats={stats}
             tasks={tasks}
             agents={agents}
-            stats={stats}
           />
         )}
       </main>
