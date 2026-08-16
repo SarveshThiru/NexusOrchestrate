@@ -134,21 +134,31 @@ const TaskLaunchpad: React.FC<TaskLaunchpadProps> = ({ onLaunchTask, isLaunching
 
         <div className="preset-grid">
           {filteredPresets.map((p, idx) => (
-            <button
+            <div
               key={idx}
-              type="button"
               className="preset-card-btn"
               onClick={() => handleSelectPreset(p)}
+              role="button"
+              tabIndex={0}
             >
               <div className="preset-header">
                 <span className="preset-tag">{p.tag}</span>
-                <span className="preset-pipeline-tag">
-                  {p.pipeline === 'full_collaboration' ? '4-Phase Hive' : p.pipeline === 'quick_plan' ? 'Architect Only' : 'QA & Code'}
-                </span>
+                <button
+                  type="button"
+                  className="btn-quick-run-preset"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onLaunchTask(p.title, p.goal, p.pipeline);
+                  }}
+                  title="Run this blueprint immediately"
+                >
+                  <ZapIcon size={12} color="#ffffff" />
+                  <span>Run Blueprint</span>
+                </button>
               </div>
               <div className="preset-title">{p.title}</div>
               <div className="preset-desc">{p.goal}</div>
-            </button>
+            </div>
           ))}
         </div>
       </div>

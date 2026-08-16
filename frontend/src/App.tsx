@@ -330,7 +330,7 @@ const App: React.FC = () => {
               onLaunchTask={handleLaunchTask}
               isLaunching={isLaunching}
             />
-            <LiveWorkflowViewer task={currentTask} />
+            <LiveWorkflowViewer task={currentTask} isLaunching={isLaunching} />
           </div>
         )}
 

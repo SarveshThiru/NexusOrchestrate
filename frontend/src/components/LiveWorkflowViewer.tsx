@@ -17,9 +17,10 @@ import {
 
 interface LiveWorkflowViewerProps {
   task: Task | null;
+  isLaunching?: boolean;
 }
 
-const LiveWorkflowViewer: React.FC<LiveWorkflowViewerProps> = ({ task }) => {
+const LiveWorkflowViewer: React.FC<LiveWorkflowViewerProps> = ({ task, isLaunching }) => {
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<string>('all');
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
@@ -35,6 +36,29 @@ const LiveWorkflowViewer: React.FC<LiveWorkflowViewerProps> = ({ task }) => {
     }
   }, [task?.logs, autoScroll]);
 
+  if (isLaunching && !task) {
+    return (
+      <div className="workflow-card empty-state launching-pulse">
+        <div className="empty-state-content">
+          <div className="radar-scanner-wrapper active-launch">
+            <div className="radar-circle c1"></div>
+            <div className="radar-circle c2"></div>
+            <div className="radar-sweep"></div>
+            <ZapIcon size={36} color="var(--accent-cyan)" />
+          </div>
+          <h3 className="empty-title">Dispatching Autonomous Cognitive Fleet...</h3>
+          <p className="empty-desc">
+            Initializing neural agents @Atlas, @Nova, @Cypher, and @Aegis. Synthesizing multi-phase architecture...
+          </p>
+          <div className="launching-status-pill">
+            <span className="pulse-indicator online"></span>
+            <span className="launching-text">ESTABLISHING LIVE STREAM</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!task) {
     return (
       <div className="workflow-card empty-state">
@@ -47,7 +71,7 @@ const LiveWorkflowViewer: React.FC<LiveWorkflowViewerProps> = ({ task }) => {
           </div>
           <h3 className="empty-title">Awaiting Workflow Telemetry</h3>
           <p className="empty-desc">
-            Dispatch a workflow from the launchpad or select an archived execution to view real-time multi-agent reasoning, phase transitions, and deliverables.
+            Select a blueprint on the left or click <strong>Run Blueprint</strong> to launch the autonomous multi-agent pipeline.
           </p>
         </div>
       </div>
