@@ -229,16 +229,28 @@ const App: React.FC = () => {
 
       if (res.ok) {
         const newTask: Task = await res.json();
-        // Mark step 1 in progress initially
-        if (newTask.steps && newTask.steps.length > 0) {
-          newTask.steps[0].status = 'in_progress';
+
+        // If returned already completed (Serverless Vercel execution)
+        if (newTask.status === 'completed') {
+          if (soundEnabled) playChime('completed');
+          setTasks((prev) => [newTask, ...prev.filter((t) => t.id !== newTask.id)]);
+          setCurrentTask(newTask);
+          setActiveTab('launchpad');
+          fetchStats();
+          fetchTasks();
+          fetchAgents();
+        } else {
+          // In progress / streaming mode
+          if (newTask.steps && newTask.steps.length > 0) {
+            newTask.steps[0].status = 'in_progress';
+          }
+          newTask.status = 'in_progress';
+          setTasks((prev) => [newTask, ...prev]);
+          setCurrentTask(newTask);
+          setActiveTab('launchpad');
+          connectSSE(newTask.id);
+          fetchStats();
         }
-        newTask.status = 'in_progress';
-        setTasks((prev) => [newTask, ...prev]);
-        setCurrentTask(newTask);
-        setActiveTab('launchpad');
-        connectSSE(newTask.id);
-        fetchStats();
       }
     } catch (err) {
       console.error('Failed to launch task:', err);

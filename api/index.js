@@ -195,7 +195,15 @@ app.post('/api/tasks', async (req, res) => {
 
     await newTask.save();
 
-    // Trigger autonomous execution asynchronously
+    // On Vercel / serverless runtime, we must await execution before returning HTTP response,
+    // otherwise the serverless runtime freezes execution and background promises are killed!
+    if (process.env.VERCEL || process.env.SERVERLESS) {
+      await runTaskExecution(taskId, { serverless: true });
+      const completedTask = await Task.findOne({ id: taskId });
+      return res.status(201).json(completedTask || newTask);
+    }
+
+    // In long-running container mode (Docker / local dev)
     runTaskExecution(taskId);
 
     res.status(201).json(newTask);

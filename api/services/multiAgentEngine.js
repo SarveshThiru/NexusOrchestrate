@@ -66,7 +66,11 @@ async function seedDefaultAgents() {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function runTaskExecution(taskId) {
+async function runTaskExecution(taskId, options = {}) {
+  const isServerless = options.serverless || !!process.env.VERCEL;
+  const speedMultiplier = isServerless ? 0.15 : 1.0;
+  const dynSleep = (ms) => sleep(Math.round(ms * speedMultiplier));
+
   const startTime = Date.now();
   let task = await Task.findOne({ id: taskId });
   if (!task) return;
@@ -85,35 +89,35 @@ async function runTaskExecution(taskId) {
     const architect = agentsMap['agent-architect'] || DEFAULT_AGENTS[0];
     await updateAgentStatus(architect.id, 'thinking');
     await publishLog(taskId, architect, 'thought', `Analyzing objective: "${task.goal}"... Identifying core technical requirements and dependencies.`);
-    await sleep(900);
+    await dynSleep(900);
 
     await publishLog(taskId, architect, 'action', `Generated 4-phase execution strategy: Research & Benchmarking ➔ Code Synthesis ➔ Security & Resilience Audit.`);
-    await sleep(700);
+    await dynSleep(700);
 
     const step1Output = `### Architecture Blueprint for: ${task.title}\n- Target Objective: ${task.goal}\n- Modular Pipeline: 4 autonomous agents\n- Protocols: REST, SSE, Redis Pub/Sub, MongoDB Storage`;
     await completeStep(taskId, 1, step1Output);
     await updateAgentStatus(architect.id, 'idle');
-    await sleep(600);
+    await dynSleep(600);
 
     // Phase 2: Research (Nova)
     const researcher = agentsMap['agent-researcher'] || DEFAULT_AGENTS[1];
     await updateAgentStatus(researcher.id, 'executing');
     await publishLog(taskId, researcher, 'thought', `Exploring architectural patterns, caching strategies, and API contracts for "${task.goal}".`);
-    await sleep(1000);
+    await dynSleep(1000);
 
     await publishLog(taskId, researcher, 'action', `Synthesizing best practices: Zero-downtime event distribution, Redis cluster caching, and containerized deployment.`);
-    await sleep(800);
+    await dynSleep(800);
 
     const step2Output = `### Research & Pattern Analysis\n- Strategy: Microservice containerization with healthcheck telemetry\n- Caching: Redis 7.x in-memory store\n- Resilience: Circuit-breaker pattern with automated retries`;
     await completeStep(taskId, 2, step2Output);
     await updateAgentStatus(researcher.id, 'idle');
-    await sleep(600);
+    await dynSleep(600);
 
     // Phase 3: Code Implementation (Cypher)
     const coder = agentsMap['agent-coder'] || DEFAULT_AGENTS[2];
     await updateAgentStatus(coder.id, 'executing');
     await publishLog(taskId, coder, 'thought', `Writing production implementation code and configuration based on architectural blueprints.`);
-    await sleep(1100);
+    await dynSleep(1100);
 
     const generatedCode = `// Generated implementation for: ${task.title}
 class MultiAgentWorker {
@@ -133,26 +137,26 @@ class MultiAgentWorker {
 module.exports = { MultiAgentWorker };`;
 
     await publishLog(taskId, coder, 'action', `Generated artifact:\n\`\`\`javascript\n${generatedCode}\n\`\`\``);
-    await sleep(900);
+    await dynSleep(900);
 
     const step3Output = `### Implementation Deliverables\n- Engineered modular worker classes\n- Connected Redis pub/sub message relays\n- Implemented MongoDB query indexes`;
     await completeStep(taskId, 3, step3Output);
     await updateAgentStatus(coder.id, 'idle');
-    await sleep(600);
+    await dynSleep(600);
 
     // Phase 4: Review & Security (Aegis)
     const reviewer = agentsMap['agent-reviewer'] || DEFAULT_AGENTS[3];
     await updateAgentStatus(reviewer.id, 'thinking');
     await publishLog(taskId, reviewer, 'thought', `Running automated security inspection and code quality linting on generated deliverables.`);
-    await sleep(1000);
+    await dynSleep(1000);
 
     await publishLog(taskId, reviewer, 'action', `Audit Passed: 0 High Vulnerabilities, 0 Memory Leaks detected. 100% test coverage target verified.`);
-    await sleep(700);
+    await dynSleep(700);
 
     const step4Output = `### Audit Certification\n- Security Status: PASSED (OWASP Top 10 validated)\n- Performance: <50ms P99 Latency Target\n- Readiness: Production Ready`;
     await completeStep(taskId, 4, step4Output);
     await updateAgentStatus(reviewer.id, 'idle');
-    await sleep(500);
+    await dynSleep(500);
 
     // Final consolidation
     const deliverable = `# Final Deliverable: ${task.title}\n\n**Goal**: ${task.goal}\n\n## 1. Executive Summary\nThe multi-agent fleet successfully coordinated to analyze, design, implement, and audit the solution for **"${task.goal}"**.\n\n## 2. Technical Solution\n\`\`\`javascript\n${generatedCode}\n\`\`\`\n\n## 3. Verification & QA Status\n- **Planner**: Atlas (Blueprint Verified)\n- **Researcher**: Nova (Context Verified)\n- **Engineer**: Cypher (Code Built)\n- **Auditor**: Aegis (Security Audit Passed)`;
